@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:AI-usage-menubar}",
+            "name": "Debug AI-usage-menubar",
+            "target": "AI-usage-menubar",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug AI-usage-menubar"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:AI-usage-menubar}",
+            "name": "Release AI-usage-menubar",
+            "target": "AI-usage-menubar",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release AI-usage-menubar"
+        }
+    ]
+}
