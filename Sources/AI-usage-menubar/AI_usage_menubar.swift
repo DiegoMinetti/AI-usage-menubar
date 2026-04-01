@@ -110,6 +110,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.updateStatusBar()
         }
         claudeService.start()
+
+        // Manual refresh from UI
+        vm.onRefresh = { [weak self] in
+            guard let self = self else { return }
+            self.copilotService.refresh()
+            self.claudeService.refresh()
+            // trigger a quick status check for Claude CLI
+            self.claudeStatusService.start()
+            self.updateStatusBar()
+        }
     }
 
     // MARK: - Status bar title
@@ -118,13 +128,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let btn = statusItem.button else { return }
         let usage = vm.claudeUsage
 
-        // Claude: session % when active, monthly % otherwise (always show a number)
-        let claudePct: String
-        if usage.isInActiveSession {
-            claudePct = String(format: "%.0f%%", usage.sessionPercentage)
-        } else {
-            claudePct = String(format: "%.0f%%", usage.monthlyPercentage)
-        }
+        // Claude: current 5h session % of monthly budget, capped at 100%
+        let claudePct = String(format: "%.0f%%", min(usage.sessionPercentage, 100.0))
 
         // Copilot: current % if connected
         let copilotPct: String

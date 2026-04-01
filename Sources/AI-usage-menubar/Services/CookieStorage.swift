@@ -1,54 +1,46 @@
 import Foundation
-import Security
 
 enum CookieStorage {
-    private static let service = "com.diegominetti.ai-usage-menubar"
-    private static let account = "GitHubCookie"
+    private static let fileName = "github_cookie.txt"
+    private static let appFolder = "AI-usage-menubar"
 
-    /// Save the full `Cookie` header string into the Keychain
-    static func save(cookieHeader: String) {
-        let data = Data(cookieHeader.utf8)
-
-        // Delete existing item first (Keychain rejects duplicates)
-        let deleteQuery: [CFString: Any] = [
-            kSecClass: kSecClassGenericPassword,
-            kSecAttrService: service,
-            kSecAttrAccount: account
-        ]
-        SecItemDelete(deleteQuery as CFDictionary)
-
-        let addQuery: [CFString: Any] = [
-            kSecClass: kSecClassGenericPassword,
-            kSecAttrService: service,
-            kSecAttrAccount: account,
-            kSecValueData: data,
-            kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        ]
-        SecItemAdd(addQuery as CFDictionary, nil)
+    private static func cookieFileURL() -> URL? {
+        let fm = FileManager.default
+        do {
+            let support = try fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+            let dir = support.appendingPathComponent(appFolder, isDirectory: true)
+            if !fm.fileExists(atPath: dir.path) {
+                try fm.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [FileAttributeKey.posixPermissions: 0o700])
+            }
+            return dir.appendingPathComponent(fileName)
+        } catch {
+            return nil
+        }
     }
 
-    /// Load the saved cookie header string from the Keychain
+    /// Save the full `Cookie` header string into a file inside Application Support.
+    /// File is written atomically and permissions set to 600 (owner read/write).
+    static func save(cookieHeader: String) {
+        guard let url = cookieFileURL() else { return }
+        let data = Data(cookieHeader.utf8)
+        do {
+            try data.write(to: url, options: .atomic)
+            try FileManager.default.setAttributes([FileAttributeKey.posixPermissions: 0o600], ofItemAtPath: url.path)
+        } catch {
+            // best-effort; avoid crashing
+        }
+    }
+
+    /// Load the saved cookie header string from Application Support
     static func load() -> String? {
-        let query: [CFString: Any] = [
-            kSecClass: kSecClassGenericPassword,
-            kSecAttrService: service,
-            kSecAttrAccount: account,
-            kSecReturnData: true,
-            kSecMatchLimit: kSecMatchLimitOne
-        ]
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess, let data = result as? Data else { return nil }
+        guard let url = cookieFileURL(), FileManager.default.fileExists(atPath: url.path) else { return nil }
+        guard let data = try? Data(contentsOf: url) else { return nil }
         return String(data: data, encoding: .utf8)
     }
 
     static func clear() {
-        let query: [CFString: Any] = [
-            kSecClass: kSecClassGenericPassword,
-            kSecAttrService: service,
-            kSecAttrAccount: account
-        ]
-        SecItemDelete(query as CFDictionary)
+        guard let url = cookieFileURL(), FileManager.default.fileExists(atPath: url.path) else { return }
+        try? FileManager.default.removeItem(at: url)
     }
 
     /// Build a Cookie header value from an array of HTTPCookie

@@ -346,7 +346,7 @@ final class ClaudeUsageService {
 
     // MARK: - 5-hour session window
 
-    private func computeSessionWindow(cfg: ClaudeConfig) -> (tokens: Int, windowEnd: Date?, percentage: Double) {
+    private func computeSessionWindow(cfg: ClaudeConfig) -> (tokens: Int, windowEnd: Date?, percentage: Double, limit: Int) {
         let windowDuration: TimeInterval = 5 * 3600
         let cutoff = Date().addingTimeInterval(-windowDuration)
 
@@ -355,25 +355,25 @@ final class ClaudeUsageService {
             return (r, dt)
         }
 
-        guard !inWindow.isEmpty else { return (0, nil, 0) }
+        let limit = cfg.effectiveSessionTokenLimit
+        guard !inWindow.isEmpty else { return (0, nil, 0, limit) }
 
         let sessionTokens = inWindow.reduce(0) { $0 + $1.record.tokens }
         let windowStart   = inWindow.map { $0.date }.min()!
         let windowEnd     = windowStart.addingTimeInterval(windowDuration)
 
-        let dailyLimit = max(cfg.dailyTokenLimit, 1)
-        let pct = (Double(sessionTokens) / Double(dailyLimit) * 100.0 * 10).rounded() / 10
-        return (sessionTokens, windowEnd, pct)
+        let pct = (Double(sessionTokens) / Double(limit) * 100.0 * 10).rounded() / 10
+        return (sessionTokens, windowEnd, pct, limit)
     }
 
     // MARK: - Weekly + monthly history
 
-    private func computeWeeklyStats(cfg: ClaudeConfig) -> (tokens: Int, percentage: Double) {
+    private func computeWeeklyStats(cfg: ClaudeConfig) -> (tokens: Int, percentage: Double, limit: Int) {
         let raw   = dailyTotalsArray(lookbackDays: 7)
         let total = raw.reduce(0) { $0 + $1.1 }
-        let weeklyLimit = max(cfg.monthly_token_limit * 7 / 30, 1)
-        let pct = min((Double(total) / Double(weeklyLimit) * 100 * 10).rounded() / 10, 100.0)
-        return (total, pct)
+        let weeklyLimit = cfg.effectiveWeeklyTokenLimit
+        let pct = (Double(total) / Double(weeklyLimit) * 100 * 10).rounded() / 10
+        return (total, pct, weeklyLimit)
     }
 
     private func computeDailyHistory() -> [DailyTokens] {
@@ -406,21 +406,28 @@ final class ClaudeUsageService {
         let limit       = cfg.monthly_token_limit
         let monthlyPct  = limit > 0 ? min((Double(total) / Double(limit) * 100 * 10).rounded() / 10, 100.0) : 0.0
 
-        let (sessionTokens, windowEnd, sessionPct) = computeSessionWindow(cfg: cfg)
-        let (weeklyTokens, weeklyPct) = computeWeeklyStats(cfg: cfg)
+        let (sessionTokens, windowEnd, sessionPct, sessionLimit) = computeSessionWindow(cfg: cfg)
+        let (weeklyTokens, weeklyPct, weeklyLimit) = computeWeeklyStats(cfg: cfg)
         let history = computeDailyHistory()
 
+        // Monthly renewal date: first day after the current cycle ends
+        let cycleEnd = dateFromYMD(cycleToUse.endDate) ?? start
+        let renewalDate = Calendar.current.date(byAdding: .day, value: 1, to: cycleEnd) ?? cycleEnd
+
         return ClaudeUsage(
-            totalTokens:       total,
-            monthlyPercentage: monthlyPct,
-            dailyAverage:      dailyAvg,
-            monthlyLimit:      cfg.monthly_token_limit,
-            sessionTokens:     sessionTokens,
-            sessionPercentage: sessionPct,
-            sessionWindowEnd:  windowEnd,
-            dailyHistory:      history,
-            weeklyTokens:      weeklyTokens,
-            weeklyPercentage:  weeklyPct
+            totalTokens:        total,
+            monthlyPercentage:  monthlyPct,
+            dailyAverage:       dailyAvg,
+            monthlyLimit:       cfg.monthly_token_limit,
+            monthlyRenewalDate: renewalDate,
+            sessionTokens:      sessionTokens,
+            sessionPercentage:  sessionPct,
+            sessionLimit:       sessionLimit,
+            sessionWindowEnd:   windowEnd,
+            dailyHistory:       history,
+            weeklyTokens:       weeklyTokens,
+            weeklyPercentage:   weeklyPct,
+            weeklyLimit:        weeklyLimit
         )
     }
 

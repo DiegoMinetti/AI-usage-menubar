@@ -1,18 +1,53 @@
 import SwiftUI
+import AppKit
+
+// MARK: - Brand colors
+
+/// Anthropic / Claude terra cotta  #DA7756
+private let claudeColor  = Color(red: 0xDA/255, green: 0x77/255, blue: 0x56/255)
+/// GitHub Copilot official purple  #8534F3
+private let copilotColor = Color(red: 0x85/255, green: 0x34/255, blue: 0xF3/255)
 
 // MARK: - Root view
 
 struct MenuContentView: View {
     @ObservedObject var vm: MenuViewModel
+    /// Fires every 30 s so countdown labels stay fresh between service refreshes.
+    private let tick = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
+    @State private var now = Date()
+    @State private var isRefreshing = false
 
     var body: some View {
         VStack(spacing: 0) {
-            ClaudeSectionView(vm: vm)
+            // Top-right refresh button
+            HStack {
+                Spacer()
+                Button(action: {
+                    isRefreshing = true
+                    vm.onRefresh?()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { isRefreshing = false }
+                }) {
+                    if isRefreshing {
+                        ProgressView()
+                            .scaleEffect(0.6, anchor: .center)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 13, weight: .regular))
+                    }
+                }
+                .buttonStyle(BorderlessButtonStyle())
+                .help("Refresh now")
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 6)
+
+            ClaudeSectionView(vm: vm, now: now)
             Divider().opacity(0.3)
-            CopilotSectionView(vm: vm)
+            CopilotSectionView(vm: vm, now: now)
         }
         .frame(width: 290)
         .background(Color.clear)
+        .onReceive(tick) { self.now = $0 }
     }
 }
 
@@ -20,6 +55,7 @@ struct MenuContentView: View {
 
 private struct ClaudeSectionView: View {
     @ObservedObject var vm: MenuViewModel
+    let now: Date
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -43,11 +79,11 @@ private struct ClaudeSectionView: View {
                     .fixedSize(horizontal: false, vertical: true)
 
             case .connected:
-                SessionRowView(usage: vm.claudeUsage)
+                SessionRowView(usage: vm.claudeUsage, now: now)
                 Divider().opacity(0.2)
-                WeeklyRowView(usage: vm.claudeUsage)
+                WeeklyRowView(usage: vm.claudeUsage, now: now)
                 Divider().opacity(0.2)
-                ClaudeMonthlyChart(usage: vm.claudeUsage)
+                ClaudeMonthlyChart(usage: vm.claudeUsage, now: now)
             }
         }
         .padding(.horizontal, 14)
@@ -59,14 +95,15 @@ private struct ClaudeSectionView: View {
 
 private struct SessionRowView: View {
     let usage: ClaudeUsage
+    let now: Date
 
-    private let windowDuration: TimeInterval = 5 * 3600
+    private var timeRemaining: TimeInterval? {
+        guard let end = usage.sessionWindowEnd else { return nil }
+        return max(end.timeIntervalSince(now), 0)
+    }
 
-    /// Fraction of the 5h window already elapsed (0 → 1).
-    private var elapsedFraction: Double {
-        guard let remaining = usage.timeRemainingInSession else { return 0 }
-        let elapsed = windowDuration - min(remaining, windowDuration)
-        return elapsed / windowDuration
+    private var displayedPercentage: Double {
+        min(max(usage.sessionPercentage, 0), 100)
     }
 
     var body: some View {
@@ -76,58 +113,39 @@ private struct SessionRowView: View {
                     Image(systemName: "clock")
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
-                    Text("Session  · 5h window")
+                    Text("Current session")
                         .font(.system(size: 11, weight: .medium))
                 }
                 Spacer()
-                if usage.isInActiveSession {
-                    Text(formatTokens(usage.sessionTokens))
-                        .font(.system(size: 11, weight: .semibold).monospacedDigit())
-                }
+                Text(formatPercentage(displayedPercentage))
+                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                    .foregroundColor(claudePctColor(displayedPercentage))
             }
 
-            if usage.isInActiveSession {
-                // Bar = time elapsed inside the 5h window
-                UsageBar(value: elapsedFraction, color: sessionBarColor(elapsedFraction))
+            if usage.isInActiveSession, let remaining = timeRemaining {
+                UsageBar(value: min(displayedPercentage / 100, 1), color: claudePctColor(displayedPercentage))
 
                 HStack {
-                    // How long ago the session started
-                    let elapsed = windowDuration * elapsedFraction
-                    Text("Started \(formatDuration(elapsed)) ago")
+                    Text("\(formatTokens(usage.sessionTokens)) used")
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
                     Spacer()
-                    // Time remaining until window closes
-                    if let remaining = usage.timeRemainingInSession {
-                        HStack(spacing: 3) {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 9))
-                            Text("resets in \(formatDuration(remaining))")
-                                .font(.system(size: 10).monospacedDigit())
-                        }
+                    Text("Resets in \(formatDuration(remaining))")
+                        .font(.system(size: 10).monospacedDigit())
                         .foregroundColor(resetColor(remaining))
-                    }
                 }
             } else {
                 Text("No activity in the last 5h")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
-                UsageBar(value: 0, color: .accentColor)
+                UsageBar(value: 0, color: claudeColor)
             }
         }
     }
 
-    private func sessionBarColor(_ fraction: Double) -> Color {
-        switch fraction {
-        case ..<0.6: return .accentColor
-        case ..<0.85: return .orange
-        default: return .red
-        }
-    }
-
     private func resetColor(_ remaining: TimeInterval) -> Color {
-        if remaining < 1800 { return .red }       // < 30 min
-        if remaining < 3600 { return .orange }    // < 1h
+        if remaining < 1800 { return .red }
+        if remaining < 3600 { return .orange }
         return .secondary
     }
 }
@@ -136,19 +154,38 @@ private struct SessionRowView: View {
 
 private struct WeeklyRowView: View {
     let usage: ClaudeUsage
+    let now: Date
+
+    private var displayedPercentage: Double {
+        min(max(usage.weeklyPercentage, 0), 100)
+    }
 
     var body: some View {
-        HStack {
-            HStack(spacing: 4) {
-                Image(systemName: "calendar")
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                HStack(spacing: 4) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                    Text("Weekly usage")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                Spacer()
+                Text(formatPercentage(displayedPercentage))
+                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                    .foregroundColor(claudePctColor(displayedPercentage))
+            }
+            UsageBar(value: min(displayedPercentage / 100, 1), color: claudePctColor(displayedPercentage))
+
+            HStack {
+                Text("\(formatTokens(usage.weeklyTokens)) in last 7d")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
-                Text("This week")
-                    .font(.system(size: 11, weight: .medium))
+                Spacer()
+                Text("Refreshes in \(formatDuration(usage.timeUntilWeeklyRefresh))")
+                    .font(.system(size: 10).monospacedDigit())
+                    .foregroundColor(.secondary)
             }
-            Spacer()
-            Text(formatTokens(usage.weeklyTokens))
-                .font(.system(size: 11, weight: .semibold).monospacedDigit())
         }
     }
 }
@@ -157,6 +194,11 @@ private struct WeeklyRowView: View {
 
 private struct ClaudeMonthlyChart: View {
     let usage: ClaudeUsage
+    let now: Date
+
+    private var timeUntilReset: TimeInterval {
+        max(usage.monthlyRenewalDate.timeIntervalSince(now), 0)
+    }
 
     var body: some View {
         let (actual, projected, limitY) = buildChartData()
@@ -169,6 +211,7 @@ private struct ClaudeMonthlyChart: View {
                 if usage.hasUsageData {
                     Text(formatTokens(usage.totalTokens))
                         .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                        .foregroundColor(claudeColor)
                 } else {
                     Text("Simulated")
                         .font(.system(size: 10))
@@ -180,7 +223,7 @@ private struct ClaudeMonthlyChart: View {
                 actualPoints: actual,
                 projectedPoints: projected,
                 referenceY: limitY,
-                color: usage.hasUsageData ? .accentColor : Color.accentColor.opacity(0.4)
+                color: usage.hasUsageData ? claudeColor : claudeColor.opacity(0.4)
             )
             .frame(height: 52)
 
@@ -200,6 +243,24 @@ private struct ClaudeMonthlyChart: View {
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // Monthly renewal row
+            Divider().opacity(0.2)
+            HStack(spacing: 5) {
+                Image(systemName: "arrow.clockwise.circle")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                Text("Resets")
+                    .font(.system(size: 11, weight: .medium))
+                Spacer()
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(formattedRenewalDate(usage.monthlyRenewalDate))
+                        .font(.system(size: 11, weight: .semibold))
+                    Text(countdownLabel(timeUntilReset))
+                        .font(.system(size: 10).monospacedDigit())
+                        .foregroundColor(timeUntilReset < 86400 ? .orange : .secondary)
+                }
             }
         }
     }
@@ -260,6 +321,7 @@ private struct ClaudeMonthlyChart: View {
 
 private struct CopilotSectionView: View {
     @ObservedObject var vm: MenuViewModel
+    let now: Date
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -275,7 +337,7 @@ private struct CopilotSectionView: View {
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else if let usage = vm.copilotUsage {
-                CopilotUsageRowView(usage: usage)
+                CopilotUsageRowView(usage: usage, now: now)
             } else {
                 Text("Fetching usage…")
                     .font(.system(size: 11))
@@ -291,27 +353,67 @@ private struct CopilotSectionView: View {
 
 private struct CopilotUsageRowView: View {
     let usage: CopilotUsage
+    let now: Date
 
     private var projectedPct: Double? { usage.projectedEndPercentage }
     private var isOverBudget: Bool { (projectedPct ?? 0) > 100 }
 
+    private var timeUntilReset: TimeInterval {
+        max(usage.resetDate.timeIntervalSince(now), 0)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            // Usage header
+            // Used / Available header
             HStack {
-                Text("Premium requests")
-                    .font(.system(size: 11, weight: .medium))
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Used")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary)
+                        Text(String(format: "%.1f%%", usage.percentage))
+                            .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                            .foregroundColor(pctColor(usage.percentage))
+                    }
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Available")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary)
+                        Text(String(format: "%.1f%%", usage.remainingPercentage))
+                            .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                            .foregroundColor(usage.remainingPercentage < 20 ? .red : copilotColor)
+                    }
+                }
                 Spacer()
-                Text(String(format: "%.1f%%", usage.percentage))
-                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
-                    .foregroundColor(pctColor(usage.percentage))
+                Text("Premium requests")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.trailing)
             }
 
             UsageBar(
                 value: usage.percentage / 100,
                 projectedValue: (projectedPct ?? usage.percentage) / 100,
-                color: isOverBudget ? .orange : .purple
+                color: isOverBudget ? .orange : copilotColor
             )
+
+            // Paid premium requests info + manage button
+            if let paid = usage.paidPremiumRequestsEnabled {
+                HStack {
+                    Text(paid ? "Additional paid premium requests enabled." : "Additional paid premium requests disabled.")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Button(action: {
+                        let url = usage.managePaidURL ?? URL(string: "https://github.com/settings/copilot")!
+                        NSWorkspace.shared.open(url)
+                    }) {
+                        Text("Manage paid premium requests")
+                            .font(.system(size: 11))
+                    }
+                    .buttonStyle(BorderlessButtonStyle())
+                }
+            }
 
             CopilotCumulativeChart(usage: usage)
                 .frame(height: 52)
@@ -337,13 +439,13 @@ private struct CopilotUsageRowView: View {
 
             // Reset row — always prominent
             Divider().opacity(0.2)
-            CopilotResetRow(usage: usage)
+            CopilotResetRow(usage: usage, timeUntilReset: timeUntilReset)
         }
     }
 
     private func pctColor(_ pct: Double) -> Color {
         switch pct {
-        case ..<70: return .primary
+        case ..<70: return copilotColor
         case ..<90: return .orange
         default:    return .red
         }
@@ -354,6 +456,7 @@ private struct CopilotUsageRowView: View {
 
 private struct CopilotResetRow: View {
     let usage: CopilotUsage
+    let timeUntilReset: TimeInterval
 
     var body: some View {
         HStack(spacing: 5) {
@@ -366,25 +469,22 @@ private struct CopilotResetRow: View {
             VStack(alignment: .trailing, spacing: 1) {
                 Text(formattedResetDate)
                     .font(.system(size: 11, weight: .semibold))
-                Text(daysLabel)
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
+                Text(countdownLabel(timeUntilReset))
+                    .font(.system(size: 10).monospacedDigit())
+                    .foregroundColor(timeUntilReset < 86400 ? .orange : .secondary)
             }
         }
     }
 
     private var formattedResetDate: String {
+        if let s = usage.resetDisplayString, !s.isEmpty {
+            return s
+        }
         let df = DateFormatter()
         df.locale = Locale.current
-        df.dateFormat = "MMM d, yyyy"
+        df.dateStyle = .medium
+        df.timeStyle = .short
         return df.string(from: usage.resetDate)
-    }
-
-    private var daysLabel: String {
-        let d = usage.daysRemaining
-        if d == 0 { return "Today" }
-        if d == 1 { return "Tomorrow" }
-        return "in \(d) days"
     }
 }
 
@@ -415,7 +515,7 @@ private struct CopilotCumulativeChart: View {
 
     var body: some View {
         let (actual, projected, limitY) = chartData
-        CumulativeLineChart(actualPoints: actual, projectedPoints: projected, referenceY: limitY, color: .purple)
+        CumulativeLineChart(actualPoints: actual, projectedPoints: projected, referenceY: limitY, color: copilotColor)
     }
 }
 
@@ -550,13 +650,55 @@ private func formatTokens(_ t: Int) -> String {
     return "\(t)"
 }
 
+private func formatPercentage(_ value: Double) -> String {
+    String(format: "%.0f%% used", value)
+}
+
 private func formatDuration(_ t: TimeInterval) -> String {
     let total = max(Int(t), 0)
-    let h = total / 3600
+    let d = total / 86400
+    let h = (total % 86400) / 3600
     let m = (total % 3600) / 60
+    if d > 0 { return h > 0 ? "\(d)d \(h)h" : "\(d)d" }
     if h > 0 { return "\(h)h \(m)m" }
     if m > 0 { return "\(m)m" }
     return "<1m"
+}
+
+/// Countdown label: "in Xd Xh" / "in Xh Xm" / "soon"
+private func countdownLabel(_ t: TimeInterval) -> String {
+    let total = max(Int(t), 0)
+    let d = total / 86400
+    let h = (total % 86400) / 3600
+    let m = (total % 3600) / 60
+    if d > 1 { return "in \(d)d \(h)h" }
+    if d == 1 { return "in 1d \(h)h" }
+    if h > 0  { return "in \(h)h \(m)m" }
+    if m > 0  { return "in \(m)m" }
+    return "soon"
+}
+
+private func formatTime(_ date: Date) -> String {
+    let df = DateFormatter()
+    df.locale = Locale.current
+    df.timeStyle = .short
+    df.dateStyle = .none
+    return df.string(from: date)
+}
+
+private func claudePctColor(_ pct: Double) -> Color {
+    switch pct {
+    case ..<70: return claudeColor
+    case ..<90: return .orange
+    default:    return .red
+    }
+}
+
+private func formattedRenewalDate(_ date: Date) -> String {
+    let df = DateFormatter()
+    df.locale = Locale.current
+    df.dateFormat = "MMM d, yyyy"
+    return df.string(from: date)
 }
 
 private extension ClaudeCLIStatus {

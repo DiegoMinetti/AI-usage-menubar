@@ -1,0 +1,29 @@
+{
+  "name": "copilot-quota-api",
+  "version": "0.1.0",
+  "description": "Minimal, resource-efficient API polling GitHub Copilot quota every minute",
+  "main": "index.js",
+  "type": "commonjs",
+  "bin": {
+    "copilot-quota-api": "index.js"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "start:dry": "node index.js --dry-run",
+    "start:prod": "NODE_ENV=production node index.js",
+    "test": "node --test",
+    "build:bin": "npx pkg . --targets node18-macos-x64,node18-macos-arm64 --out-path dist",
+    "package:app": "scripts/package-app.sh dist/copilot-quota-api-macos || true",
+    "package:dmg": "scripts/create-dmg.sh dist/copilot-quota-api.app dist/copilot-quota-api.dmg || true"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "prom-client": "^14.0.0",
+    "pino": "^8.0.0"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.0"
+  }
+}

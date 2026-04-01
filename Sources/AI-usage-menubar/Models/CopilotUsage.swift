@@ -5,6 +5,17 @@ import Foundation
 public struct CopilotUsage: Codable, Sendable {
     public let percentage: Double
     public let resetDate: Date
+    /// Optional original display string extracted from the settings page (e.g. "24 Apr 2026, 9:00 PM")
+    public let resetDisplayString: String?
+    /// When this value was fetched from the network
+    public let fetchedAt: Date?
+    /// Feature statuses parsed from the settings page (optional)
+    public let inlineSuggestionsStatus: String?
+    public let chatMessagesStatus: String?
+    /// Whether additional paid premium requests are enabled (nil = unknown)
+    public let paidPremiumRequestsEnabled: Bool?
+    /// Optional URL to manage paid premium requests
+    public let managePaidURL: URL?
 
     // MARK: - Computed (always fresh, not cached)
 
@@ -29,6 +40,11 @@ public struct CopilotUsage: Codable, Sendable {
 
     /// Total days in the estimated cycle.
     public var daysInCycle: Int { daysElapsed + daysRemaining }
+
+    /// Percentage of the allowance still available (not consumed).
+    public var remainingPercentage: Double {
+        max(0, 100.0 - percentage)
+    }
 
     /// Whether there's enough history to make a meaningful projection
     /// (at least 3 days into the cycle).
