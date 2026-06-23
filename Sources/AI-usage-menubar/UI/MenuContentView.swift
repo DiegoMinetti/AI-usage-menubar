@@ -7,6 +7,8 @@ import AppKit
 private let claudeColor  = Color(red: 0xDA/255, green: 0x77/255, blue: 0x56/255)
 /// GitHub Copilot official purple  #8534F3
 private let copilotColor = Color(red: 0x85/255, green: 0x34/255, blue: 0xF3/255)
+/// OpenAI green #10A37F
+private let codexColor = Color(red: 0x10/255, green: 0xA3/255, blue: 0x7F/255)
 
 // MARK: - Root view
 
@@ -16,11 +18,22 @@ struct MenuContentView: View {
     private let tick = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
     @State private var now = Date()
     @State private var isRefreshing = false
+    @State private var showSettings = false
 
     var body: some View {
         VStack(spacing: 0) {
             // Top-right refresh button
             HStack {
+                Button(action: { showSettings.toggle() }) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 13, weight: .regular))
+                }
+                .buttonStyle(BorderlessButtonStyle())
+                .help("Settings")
+                .popover(isPresented: $showSettings, arrowEdge: .top) {
+                    SettingsPanelView(vm: vm)
+                }
+
                 Spacer()
                 Button(action: {
                     isRefreshing = true
@@ -41,13 +54,44 @@ struct MenuContentView: View {
             .padding(.horizontal, 12)
             .padding(.top, 6)
 
-            ClaudeSectionView(vm: vm, now: now)
-            Divider().opacity(0.3)
-            CopilotSectionView(vm: vm, now: now)
+            let visible = UsageProviderID.allCases.filter { vm.settings.showsProvider($0) }
+            if visible.isEmpty {
+                EmptyProvidersView()
+            } else {
+                ForEach(Array(visible.enumerated()), id: \.element) { index, provider in
+                    if index > 0 { Divider().opacity(0.3) }
+                    switch provider {
+                    case .claude:
+                        ClaudeSectionView(vm: vm, now: now)
+                    case .copilot:
+                        CopilotSectionView(vm: vm, now: now)
+                    case .codex:
+                        CodexSectionView(vm: vm, now: now)
+                    }
+                }
+            }
         }
         .frame(width: 290)
         .background(Color.clear)
         .onReceive(tick) { self.now = $0 }
+    }
+}
+
+private struct EmptyProvidersView: View {
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "circle.grid.cross")
+                .font(.system(size: 20))
+                .foregroundColor(.secondary)
+            Text("No providers selected.")
+                .font(.system(size: 11, weight: .medium))
+            Text("Use Settings to show usage sections again.")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 22)
     }
 }
 
@@ -79,6 +123,8 @@ private struct ClaudeSectionView: View {
                     .fixedSize(horizontal: false, vertical: true)
 
             case .connected:
+                ProviderSummaryView(summary: vm.summary(for: .claude, now: now), tint: claudeColor, now: now)
+                Divider().opacity(0.2)
                 SessionRowView(usage: vm.claudeUsage, now: now)
                 Divider().opacity(0.2)
                 WeeklyRowView(usage: vm.claudeUsage, now: now)
@@ -317,6 +363,210 @@ private struct ClaudeMonthlyChart: View {
     }
 }
 
+// MARK: - ChatGPT / Codex section
+
+private struct CodexSectionView: View {
+    @ObservedObject var vm: MenuViewModel
+    let now: Date
+
+    var body: some View {
+        let usage = vm.codexUsage
+
+        VStack(alignment: .leading, spacing: 9) {
+            SectionHeader(
+                title: "CHATGPT / CODEX",
+                dotColor: usage.hasUsageData ? .green : Color(NSColor.tertiaryLabelColor),
+                statusLabel: usage.hasQuotaData ? "Usage" : (usage.lastModel ?? (usage.hasUsageData ? "Local" : "No data"))
+            )
+
+            if usage.hasUsageData {
+                ProviderSummaryView(summary: vm.summary(for: .codex, now: now), tint: codexColor, now: now)
+                Divider().opacity(0.2)
+
+                if usage.hasQuotaData {
+                    CodexRemainingView(usage: usage, now: now)
+                    Divider().opacity(0.2)
+                }
+
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Local last 7d")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary)
+                        Text(formatTokens(usage.weeklyTokens))
+                            .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                            .foregroundColor(codexColor)
+                    }
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 1) {
+                        Text("Total")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary)
+                        Text(formatTokens(usage.totalTokens))
+                            .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                    }
+                }
+
+                CodexMiniChart(usage: usage)
+                    .frame(height: 38)
+
+                HStack {
+                    Text("\(usage.activeThreads) active · \(usage.archivedThreads) archived")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    if let updated = usage.lastUpdated {
+                        Text("Updated \(formatTime(updated))")
+                            .font(.system(size: 10).monospacedDigit())
+                            .foregroundColor(.secondary)
+                    }
+                }
+            } else {
+                Text("No Codex usage found at \(usage.sourcePath). Sign in to Codex Desktop to show remaining usage.")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+    }
+}
+
+private struct CodexRemainingView: View {
+    let usage: ChatGPTCodexUsage
+    let now: Date
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 5) {
+                Image(systemName: "gauge.with.dots.needle.50percent")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                Text("Uso restante")
+                    .font(.system(size: 11, weight: .medium))
+                Spacer()
+                if let fetched = usage.quotaFetchedAt {
+                    Text("Updated \(formatTime(fetched))")
+                        .font(.system(size: 9).monospacedDigit())
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            if let fiveHour = usage.fiveHourWindow {
+                CodexLimitRow(window: fiveHour, now: now)
+            }
+            if let weekly = usage.weeklyWindow {
+                CodexLimitRow(window: weekly, now: now)
+            }
+            ForEach(extraWindows, id: \.id) { window in
+                CodexLimitRow(window: window, now: now)
+            }
+            if let monthly = usage.monthlyLimit {
+                CodexMonthlyLimitRow(monthly: monthly, now: now)
+            } else if let monthlyWindow = usage.monthlyWindow {
+                CodexLimitRow(window: monthlyWindow, now: now)
+            }
+        }
+    }
+
+    private var extraWindows: [CodexLimitWindow] {
+        usage.limitWindows.filter { window in
+            abs(window.windowMinutes - 300) > 1 &&
+            abs(window.windowMinutes - 10_080) > 60 &&
+            abs(window.windowMinutes - 43_200) > 1_440
+        }
+    }
+}
+
+private struct CodexLimitRow: View {
+    let window: CodexLimitWindow
+    let now: Date
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(window.normalizedLabel)
+                    .font(.system(size: 11, weight: .medium))
+                Spacer()
+                Text(String(format: "%.0f%%", window.remainingPercent))
+                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                    .foregroundColor(codexRemainingColor(window.remainingPercent))
+                if let reset = window.resetAt {
+                    Text(resetLabel(reset))
+                        .font(.system(size: 10).monospacedDigit())
+                        .foregroundColor(.secondary)
+                }
+            }
+            UsageBar(value: min(max(window.usedPercent / 100, 0), 1), color: codexLimitColor(window.usedPercent))
+        }
+    }
+
+    private func resetLabel(_ date: Date) -> String {
+        if date.timeIntervalSince(now) < 86_400 {
+            return formatTime(date)
+        }
+        let df = DateFormatter()
+        df.locale = Locale.current
+        df.dateFormat = "MMM d"
+        return df.string(from: date)
+    }
+}
+
+private struct CodexMonthlyLimitRow: View {
+    let monthly: CodexMonthlyLimit
+    let now: Date
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Mensual")
+                    .font(.system(size: 11, weight: .medium))
+                Spacer()
+                Text(String(format: "%.0f%%", monthly.remainingPercent))
+                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                    .foregroundColor(codexRemainingColor(monthly.remainingPercent))
+                if let reset = monthly.resetAt {
+                    Text(countdownLabel(reset.timeIntervalSince(now)))
+                        .font(.system(size: 10).monospacedDigit())
+                        .foregroundColor(.secondary)
+                }
+            }
+            UsageBar(value: min(max(monthly.usedPercent / 100, 0), 1), color: codexLimitColor(monthly.usedPercent))
+            HStack {
+                Text("\(formatCredits(monthly.remaining)) restantes")
+                Spacer()
+                Text("Limite \(formatCredits(monthly.limit))")
+            }
+            .font(.system(size: 10).monospacedDigit())
+            .foregroundColor(.secondary)
+        }
+    }
+}
+
+private struct CodexMiniChart: View {
+    let usage: ChatGPTCodexUsage
+
+    var body: some View {
+        let values = usage.dailyHistory.map(\.tokens)
+        let maxValue = max(values.max() ?? 0, 1)
+
+        HStack(alignment: .bottom, spacing: 2) {
+            ForEach(Array(usage.dailyHistory.enumerated()), id: \.offset) { _, day in
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(day.tokens > 0 ? codexColor.opacity(0.85) : Color.secondary.opacity(0.14))
+                    .frame(height: max(CGFloat(day.tokens) / CGFloat(maxValue) * 34, day.tokens > 0 ? 3 : 2))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 3)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color.secondary.opacity(0.06))
+        )
+    }
+}
+
 // MARK: - Copilot section
 
 private struct CopilotSectionView: View {
@@ -337,6 +587,8 @@ private struct CopilotSectionView: View {
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else if let usage = vm.copilotUsage {
+                ProviderSummaryView(summary: vm.summary(for: .copilot, now: now), tint: copilotColor, now: now)
+                Divider().opacity(0.2)
                 CopilotUsageRowView(usage: usage, now: now)
             } else {
                 Text("Fetching usage…")
@@ -596,7 +848,7 @@ private struct CumulativeLineChart: View {
 
 // MARK: - Shared primitives
 
-private struct UsageBar: View {
+struct UsageBar: View {
     let value: Double
     var projectedValue: Double? = nil
     let color: Color
@@ -650,6 +902,12 @@ private func formatTokens(_ t: Int) -> String {
     return "\(t)"
 }
 
+private func formatCredits(_ value: Double) -> String {
+    if value >= 1_000_000 { return String(format: "%.1fM", value / 1_000_000) }
+    if value >= 1_000 { return String(format: "%.1fK", value / 1_000) }
+    return String(format: "%.0f", value)
+}
+
 private func formatPercentage(_ value: Double) -> String {
     String(format: "%.0f%% used", value)
 }
@@ -691,6 +949,22 @@ private func claudePctColor(_ pct: Double) -> Color {
     case ..<70: return claudeColor
     case ..<90: return .orange
     default:    return .red
+    }
+}
+
+private func codexLimitColor(_ usedPercent: Double) -> Color {
+    switch usedPercent {
+    case ..<70: return codexColor
+    case ..<90: return .orange
+    default:    return .red
+    }
+}
+
+private func codexRemainingColor(_ remainingPercent: Double) -> Color {
+    switch remainingPercent {
+    case ..<10: return .red
+    case ..<30: return .orange
+    default:    return codexColor
     }
 }
 

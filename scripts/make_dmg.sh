@@ -8,7 +8,7 @@ set -euo pipefail
 # Configuration
 ###############################################################################
 APP_NAME="AI Usage"
-VERSION="1.0.0"
+VERSION="${VERSION:-1.0.0}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_PATH="$REPO_ROOT/build/${APP_NAME}.app"
 DMG_DIR="$REPO_ROOT/build"
@@ -59,7 +59,7 @@ else
 
     # Calculate size (add 20% headroom)
     APP_SIZE_KB=$(du -sk "$STAGING_DIR" | cut -f1)
-    DMG_SIZE_KB=$(( APP_SIZE_KB * 12 / 10 ))
+    DMG_SIZE_KB=$(( APP_SIZE_KB * 2 + 51200 ))
 
     # Create temporary writable DMG
     TEMP_DMG="$(mktemp -u).dmg"

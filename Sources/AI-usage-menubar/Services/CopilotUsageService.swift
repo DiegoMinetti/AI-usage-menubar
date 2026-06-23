@@ -51,16 +51,74 @@ final class CopilotUsageService {
     // MARK: - Network fetch
 
     nonisolated static func fetchUsageNetwork() async -> CopilotUsage? {
-        guard let cookieHeader = CookieStorage.load() else {
-            logger.debug("No cookies; skipping fetch")
-            return nil
-        }
-
+        // First, prefer a local copilot-quota-api instance if available. This
+        // allows the app to consume the normalized quota JSON produced by the
+        // bundled Node service (which handles GitHub tokens). If that fails,
+        // fall back to scraping the GitHub settings page using stored cookies.
         var config = URLSessionConfiguration.default
         config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest  = 15
         config.timeoutIntervalForResource = 30
         let session = URLSession(configuration: config)
+
+        // Try local service at default port first
+        if let localURL = URL(string: "http://127.0.0.1:3000/quota") {
+            var req = URLRequest(url: localURL)
+            req.httpMethod = "GET"
+            req.setValue("application/json", forHTTPHeaderField: "Accept")
+            do {
+                let (data, _) = try await session.data(for: req)
+                if let obj = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] {
+                    // Expect fields like resetDate (ISO string), rawJSON, quota, used
+                    if let resetStr = obj["resetDate"] as? String {
+                        let iso = ISO8601DateFormatter()
+                        if let resetD = iso.date(from: resetStr) {
+                            // compute percentage consumed from rawJSON if possible
+                            var percentage: Double = 0
+                            if let raw = obj["rawJSON"] as? [String: Any], let snapshots = raw["quota_snapshots"] as? [String: Any] {
+                                let snap = (snapshots["premium_interactions"] as? [String: Any]) ?? (snapshots["chat"] as? [String: Any]) ?? (snapshots["completions"] as? [String: Any])
+                                if let snap = snap {
+                                    if let percentRemaining = snap["percent_remaining"] as? Double {
+                                        percentage = max(0, min(100, 100.0 - percentRemaining))
+                                    } else if let entitlement = snap["entitlement"] as? Double, entitlement > 0, let remaining = snap["remaining"] as? Double {
+                                        let consumed = entitlement - remaining
+                                        percentage = (consumed / entitlement) * 100.0
+                                    }
+                                }
+                            }
+                            // fallback: use used/quota
+                            if percentage == 0, let used = obj["used"] as? Double, let quota = obj["quota"] as? Double, quota > 0 {
+                                percentage = (used / quota) * 100.0
+                            }
+
+                            let fetchedAt: Date?
+                            if let fetched = obj["fetchedAt"] as? String, let dt = ISO8601DateFormatter().date(from: fetched) { fetchedAt = dt } else { fetchedAt = Date() }
+
+                            let usage = CopilotUsage(
+                                percentage: percentage,
+                                resetDate: resetD,
+                                resetDisplayString: nil,
+                                fetchedAt: fetchedAt,
+                                inlineSuggestionsStatus: nil,
+                                chatMessagesStatus: nil,
+                                paidPremiumRequestsEnabled: nil,
+                                managePaidURL: nil
+                            )
+                            logger.debug("Fetched quota from local service; reset=\(resetD, privacy: .public)")
+                            return usage
+                        }
+                    }
+                }
+            } catch {
+                logger.debug("Local quota service not available: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+
+        // If local service failed, try scraping using cookies (existing behavior)
+        guard let cookieHeader = CookieStorage.load() else {
+            logger.debug("No cookies; skipping fetch")
+            return nil
+        }
 
         var req = URLRequest(url: targetURL)
         req.httpMethod = "GET"

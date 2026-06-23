@@ -27,5 +27,7 @@
         <key>NSAllowsArbitraryLoads</key>
         <false/>
     </dict>
+    <key>AIUsageMainCommit</key>
+    <string>6df584f</string>
 </dict>
 </plist>

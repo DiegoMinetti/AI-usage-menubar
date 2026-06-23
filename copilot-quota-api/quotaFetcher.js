@@ -14,10 +14,11 @@ function ensureFetch() {
 async function fetchQuotaSnapshotWithRetry(githubToken, opts = {}) {
   ensureFetch();
   const attempts = opts.attempts ?? DEFAULT_ATTEMPTS;
-  const url = 'https://api.githubcopilot.com/copilot_internal/user';
+  // Allow overriding the endpoint via env for testing/compatibility.
+  const url = process.env.COPILOT_API_URL || 'https://api.github.com/copilot_internal/user';
   const headers = {
-    Authorization: `token ${githubToken}`,
-    'X-GitHub-Api-Version': '2025-04-01',
+    // Use Bearer scheme which the API expects in some deployments.
+    Authorization: `Bearer ${githubToken}`,
     Accept: 'application/json'
   };
 
@@ -48,11 +49,21 @@ function parseQuotaFromSnapshot(json) {
   const snapshot = snapshots.premium_interactions ?? snapshots.chat ?? snapshots.premium_models ?? snapshots.completions;
   if (!snapshot) return null;
 
+  console.log('Raw snapshot from API:\n', JSON.stringify(json, null, 2));
   const entitlement = Number.parseInt(snapshot.entitlement ?? snapshot.entitlement?.toString?.() ?? '0', 10);
-  const percent_remaining = Number(snapshot.percent_remaining ?? snapshot.percent_remaining ?? 0);
+  const percent_remaining = Number(snapshot.percent_remaining ?? 0);
   const overage_count = Number(snapshot.overage_count ?? 0);
   const overage_permitted = !!snapshot.overage_permitted;
-  const reset_date = snapshot.reset_date ?? json.quota_reset_date ?? null;
+
+  // Determine reset date from multiple possible fields seen in responses:
+  //  - snapshot.reset_date (legacy)
+  //  - snapshot.quota_reset_at (numeric epoch seconds/ms)
+  //  - top-level json.quota_reset_date_utc
+  //  - top-level json.quota_reset_date
+  let reset_date = null;
+  if (json.quota_reset_date) {
+    reset_date = json.quota_reset_date;
+  }
 
   const used = Math.max(0, (entitlement === -1 ? 0 : entitlement * (1 - (percent_remaining || 0) / 100)));
 
@@ -61,8 +72,10 @@ function parseQuotaFromSnapshot(json) {
     used,
     overageUsed: overage_count,
     overageEnabled: overage_permitted,
+    // Keep both a Date object and the raw JSON for callers that want details
     resetDate: reset_date ? new Date(reset_date) : null,
-    rawSnapshot: snapshot
+    rawSnapshot: snapshot,
+    rawJSON: json
   };
 }
 

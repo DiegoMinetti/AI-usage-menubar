@@ -9,6 +9,7 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "AI-usage-menubar",
+            exclude: ["Info.plist"]
             // Info.plist cannot be declared as a top-level resource in SwiftPM.
             // Removing the resource declaration allows `swift run` to build.
         )

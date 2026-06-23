@@ -3,9 +3,22 @@
 <plist version="1.0">
 <dict>
 	<key>files</key>
-	<dict/>
+	<dict>
+		<key>Resources/install_from_main.sh</key>
+		<data>
+		iHO91+J4mm0zHPI88d/kDRt2yB4=
+		</data>
+	</dict>
 	<key>files2</key>
-	<dict/>
+	<dict>
+		<key>Resources/install_from_main.sh</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			F403TbX/lboDilO4w6nbxhs7y5r0+Um2NEHqUew6TR0=
+			</data>
+		</dict>
+	</dict>
 	<key>rules</key>
 	<dict>
 		<key>^Resources/</key>

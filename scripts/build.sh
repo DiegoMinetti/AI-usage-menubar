@@ -11,6 +11,7 @@ APP_NAME="AI Usage"
 EXECUTABLE_NAME="AI-usage-menubar"
 VERSION="1.0.0"
 BUILD_NUMBER="1"
+MAIN_COMMIT="${MAIN_COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo local)}"
 ENTITLEMENTS="$(pwd)/AI-usage-menubar.entitlements"
 SIGN_IDENTITY=""
 
@@ -80,6 +81,8 @@ cat > "$CONTENTS/Info.plist" <<PLIST
         <key>NSAllowsArbitraryLoads</key>
         <false/>
     </dict>
+    <key>AIUsageMainCommit</key>
+    <string>${MAIN_COMMIT}</string>
 </dict>
 </plist>
 PLIST
@@ -93,6 +96,11 @@ if [[ -f "$ICON_SRC" ]]; then
     echo "  ✓ Icon included"
 else
     echo "  ⚠ No icon found at Assets/AppIcon.icns — skipping"
+fi
+
+if [[ -f "$REPO_ROOT/scripts/install_from_main.sh" ]]; then
+    cp "$REPO_ROOT/scripts/install_from_main.sh" "$RESOURCES_DIR/install_from_main.sh"
+    chmod +x "$RESOURCES_DIR/install_from_main.sh"
 fi
 
 ###############################################################################
