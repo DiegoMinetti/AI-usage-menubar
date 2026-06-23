@@ -6,20 +6,11 @@
 	<dict/>
 	<key>files2</key>
 	<dict>
-		<key>PlugIns/AIUsageWidget.appex</key>
-		<dict>
-			<key>cdhash</key>
-			<data>
-			1GPlhZiD39gmbMw7DED/zmuV15A=
-			</data>
-			<key>requirement</key>
-			<string>identifier "com.diegominetti.ai-usage-menubar.widget.v2" and anchor apple generic and certificate leaf[subject.CN] = "Apple Development: diegominetti@gmail.com (28GLT3SSTX)" and certificate 1[field.1.2.840.113635.100.6.2.1] /* exists */</string>
-		</dict>
 		<key>embedded.provisionprofile</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			CkQwhOQxKY7WRbNUYADBkLyuqBPqChFwD/bHnTv0d+Y=
+			Qn0br3jdy1HjoxPUwbPq/OrBaZW9vXNBGkWVjkm51Zc=
 			</data>
 		</dict>
 	</dict>

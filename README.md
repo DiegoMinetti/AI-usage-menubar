@@ -6,6 +6,7 @@ Aplicación de macOS que muestra en la barra de menú métricas de uso de servic
 
 - Monitorización de uso de Copilot (requiere inicio de sesión con GitHub).
 - Monitorización de uso de Claude: registros de uso, ciclo de facturación y detección de anomalías.
+- Monitorización de MiniMax Token Plan mediante API key guardada en Keychain.
 - Visualización de tokens diarios y resúmenes de consumo.
 - Persistencia local de sesiones/cookies para mantener la conexión a servicios.
 - Distribución como aplicación de barra de menú para macOS.
@@ -18,6 +19,7 @@ Aplicación de macOS que muestra en la barra de menú métricas de uso de servic
 - Widget de escritorio propio de la app, activable desde la barra de menú.
 - Ventana de inicio de sesión con GitHub para habilitar Copilot.
 - Lectura local de ChatGPT/Codex desde `~/.codex/state_5.sqlite`.
+- Lectura de MiniMax Token Plan desde `https://www.minimax.io/v1/token_plan/remains`.
 - Resumen normalizado por plataforma: usado, restante, límite, periodo, fechas de inicio/reset y última actualización cuando la fuente lo permite.
 - Servicios modulados para obtener y almacenar datos (`Services/`).
 - Modelos de dominio en `Models/` (uso de Claude, Copilot, tokens diarios, anomalías).
@@ -52,7 +54,10 @@ open Package.swift
 # Abrir el proyecto nativo con widget
 open "AI Usage.xcodeproj"
 
-# Build rápido con SwiftPM
+# Build nativo con WidgetKit
+./scripts/build_xcode.sh
+
+# Build rápido con SwiftPM (sin widget nativo)
 swift build -c release
 
 # Crear un instalador/DMG (si procede)
@@ -74,7 +79,8 @@ open "build/AI Usage.app"
 
 - Claude: ajusta endpoints o credenciales en [Sources/AI-usage-menubar/Models/ClaudeConfig.swift](Sources/AI-usage-menubar/Models/ClaudeConfig.swift) y recompila si es necesario.
 - Copilot / GitHub: inicia sesión desde la app (el diálogo de login está en [Sources/AI-usage-menubar/UI/GitHubLoginWindow.swift](Sources/AI-usage-menubar/UI/GitHubLoginWindow.swift)). El manejo de sesiones/cookies se realiza en [Sources/AI-usage-menubar/Services/CookieStorage.swift](Sources/AI-usage-menubar/Services/CookieStorage.swift).
-- Visibilidad: desde el engranaje del menú se puede activar/desactivar cada proveedor en el panel y en la barra superior. Si la barra superior queda sin proveedores, la app muestra solo el icono.
+- MiniMax: abre `Open AI Usage` > `Settings`, pega tu Token Plan API key en `MiniMax credentials` y pulsa `Save`. La clave se guarda en macOS Keychain.
+- Visibilidad: desde `Open AI Usage` > `Settings` se puede activar/desactivar cada proveedor en el panel y en la barra superior. Si la barra superior queda sin proveedores, la app muestra solo el icono.
 - Actualizaciones: desde el menú se puede ejecutar `Update from main`; también se puede activar la actualización automática desde el panel. El auto-update compara el SHA remoto de `main` y solo instala si detecta un commit nuevo.
 
 Si prefieres no recompilar para cambios menores de configuración, revisa el código de `CookieStorage` y `ClaudeConfig` para opciones de persistencia y carga de configuración.
@@ -98,9 +104,11 @@ En el build nativo, la app escribe el snapshot en el App Group `group.com.diegom
 El instalador DMG se genera con:
 
 ```bash
-./scripts/build.sh
+./scripts/build_xcode.sh
 ./scripts/make_dmg.sh
 ```
+
+El DMG requiere el build nativo de Xcode porque es el único que empaqueta `AIUsageWidget.appex`. El script `make_dmg.sh` falla a propósito si el `.app` de `build/` no contiene la extensión WidgetKit, para evitar distribuir una versión con widgets viejos o sin actualizar.
 
 El actualizador de `main` usa [scripts/install_from_main.sh](scripts/install_from_main.sh): clona la rama `main`, compila la app, reemplaza `/Applications/AI Usage.app` y la vuelve a abrir. Para distribuir fuera de tu Mac, firma con Developer ID, notariza el DMG y ejecuta `stapler`; el script `make_dmg.sh` imprime los comandos base.
 

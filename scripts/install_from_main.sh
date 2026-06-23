@@ -23,16 +23,27 @@ cd "$TMP_DIR/repo"
 MAIN_COMMIT="$(git rev-parse HEAD)"
 echo "▶ Building commit $MAIN_COMMIT"
 
-if [[ -d "AI Usage.xcodeproj" && -x "./scripts/build_xcode.sh" && -n "${DEVELOPMENT_TEAM:-}" ]]; then
-  DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" ./scripts/build_xcode.sh
-  BUILT_APP="$TMP_DIR/repo/.build/xcode-native/Build/Products/Release/${APP_NAME}.app"
-else
+if [[ -d "AI Usage.xcodeproj" && -x "./scripts/build_xcode.sh" ]]; then
+  ./scripts/build_xcode.sh
+  BUILT_APP="$TMP_DIR/repo/build/${APP_NAME}.app"
+elif [[ "${USE_SWIFTPM_FALLBACK:-0}" == "1" ]]; then
+  echo "⚠️  Building SwiftPM fallback without WidgetKit extension."
   MAIN_COMMIT="$MAIN_COMMIT" ./scripts/build.sh
   BUILT_APP="$TMP_DIR/repo/build/${APP_NAME}.app"
+else
+  echo "❌ Native Xcode project not found. Refusing to install a build without WidgetKit." >&2
+  echo "   Set USE_SWIFTPM_FALLBACK=1 only if you intentionally want no native widget." >&2
+  exit 1
 fi
 
 if [[ ! -d "$BUILT_APP" ]]; then
   echo "❌ Built app not found at $BUILT_APP" >&2
+  exit 1
+fi
+
+if [[ ! -d "$BUILT_APP/Contents/PlugIns/AIUsageWidget.appex" ]]; then
+  echo "❌ Built app does not contain AIUsageWidget.appex." >&2
+  echo "   The native widget would keep using the old installed extension." >&2
   exit 1
 fi
 

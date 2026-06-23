@@ -38,6 +38,9 @@
 		10000000000000000000001D /* Services/AppUpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000020 /* Services/AppUpdateService.swift */; };
 		10000000000000000000001E /* UI/ProviderSummaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000021 /* UI/ProviderSummaryView.swift */; };
 		10000000000000000000001F /* UI/SettingsPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000022 /* UI/SettingsPanelView.swift */; };
+		100000000000000000000020 /* UI/MainWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000023 /* UI/MainWindowView.swift */; };
+		100000000000000000000021 /* Models/MiniMaxUsage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000024 /* Models/MiniMaxUsage.swift */; };
+		100000000000000000000022 /* Services/MiniMaxUsageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000025 /* Services/MiniMaxUsageService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -99,6 +102,9 @@
 		200000000000000000000020 /* Services/AppUpdateService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/AppUpdateService.swift; sourceTree = "<group>"; };
 		200000000000000000000021 /* UI/ProviderSummaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/ProviderSummaryView.swift; sourceTree = "<group>"; };
 		200000000000000000000022 /* UI/SettingsPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/SettingsPanelView.swift; sourceTree = "<group>"; };
+		200000000000000000000023 /* UI/MainWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/MainWindowView.swift; sourceTree = "<group>"; };
+		200000000000000000000024 /* Models/MiniMaxUsage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models/MiniMaxUsage.swift; sourceTree = "<group>"; };
+		200000000000000000000025 /* Services/MiniMaxUsageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/MiniMaxUsageService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -144,6 +150,7 @@
 				200000000000000000000007 /* Models/ClaudeUsage.swift */,
 				200000000000000000000008 /* Models/CopilotUsage.swift */,
 				200000000000000000000009 /* Models/DailyTokens.swift */,
+				200000000000000000000024 /* Models/MiniMaxUsage.swift */,
 				20000000000000000000001E /* Models/ProviderUsageSummary.swift */,
 				20000000000000000000000A /* Models/UsageSnapshot.swift */,
 				20000000000000000000001F /* Services/AppSettingsStore.swift */,
@@ -154,9 +161,11 @@
 				20000000000000000000000E /* Services/CookieStorage.swift */,
 				20000000000000000000000F /* Services/CopilotUsageService.swift */,
 				200000000000000000000010 /* Services/KeychainStorage.swift */,
+				200000000000000000000025 /* Services/MiniMaxUsageService.swift */,
 				200000000000000000000011 /* Services/UsageSnapshotStore.swift */,
 				200000000000000000000012 /* UI/DesktopWidgetView.swift */,
 				200000000000000000000013 /* UI/GitHubLoginWindow.swift */,
+				200000000000000000000023 /* UI/MainWindowView.swift */,
 				200000000000000000000014 /* UI/MenuContentView.swift */,
 				200000000000000000000015 /* UI/MenuViewModel.swift */,
 				200000000000000000000021 /* UI/ProviderSummaryView.swift */,
@@ -272,6 +281,7 @@
 				100000000000000000000007 /* Models/ClaudeUsage.swift in Sources */,
 				100000000000000000000008 /* Models/CopilotUsage.swift in Sources */,
 				100000000000000000000009 /* Models/DailyTokens.swift in Sources */,
+				100000000000000000000021 /* Models/MiniMaxUsage.swift in Sources */,
 				10000000000000000000001B /* Models/ProviderUsageSummary.swift in Sources */,
 				10000000000000000000000A /* Models/UsageSnapshot.swift in Sources */,
 				10000000000000000000001C /* Services/AppSettingsStore.swift in Sources */,
@@ -282,9 +292,11 @@
 				10000000000000000000000E /* Services/CookieStorage.swift in Sources */,
 				10000000000000000000000F /* Services/CopilotUsageService.swift in Sources */,
 				100000000000000000000010 /* Services/KeychainStorage.swift in Sources */,
+				100000000000000000000022 /* Services/MiniMaxUsageService.swift in Sources */,
 				100000000000000000000011 /* Services/UsageSnapshotStore.swift in Sources */,
 				100000000000000000000012 /* UI/DesktopWidgetView.swift in Sources */,
 				100000000000000000000013 /* UI/GitHubLoginWindow.swift in Sources */,
+				100000000000000000000020 /* UI/MainWindowView.swift in Sources */,
 				100000000000000000000014 /* UI/MenuContentView.swift in Sources */,
 				100000000000000000000015 /* UI/MenuViewModel.swift in Sources */,
 				10000000000000000000001E /* UI/ProviderSummaryView.swift in Sources */,
@@ -437,7 +449,7 @@
 				CODE_SIGN_ENTITLEMENTS = "AI-usage-menubar.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = XCW45XWX3V;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "Sources/AI-usage-menubar/Info.plist";
@@ -445,7 +457,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.0.3;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.diegominetti.ai-usage-menubar";
 				PRODUCT_NAME = "AI Usage";
 				SWIFT_VERSION = 6.0;
@@ -459,7 +471,7 @@
 				CODE_SIGN_ENTITLEMENTS = "AI-usage-menubar.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = XCW45XWX3V;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "Sources/AI-usage-menubar/Info.plist";
@@ -467,7 +479,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.0.3;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.diegominetti.ai-usage-menubar";
 				PRODUCT_NAME = "AI Usage";
 				SWIFT_VERSION = 6.0;
@@ -479,7 +491,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = AIUsageWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = XCW45XWX3V;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Sources/AIUsageWidget/Info.plist;
@@ -488,8 +500,8 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.diegominetti.ai-usage-menubar.widget";
+				MARKETING_VERSION = 1.0.3;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.diegominetti.ai-usage-menubar.widget.v2";
 				PRODUCT_NAME = AIUsageWidget;
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 6.0;
@@ -501,7 +513,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = AIUsageWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = XCW45XWX3V;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Sources/AIUsageWidget/Info.plist;
@@ -510,8 +522,8 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.diegominetti.ai-usage-menubar.widget";
+				MARKETING_VERSION = 1.0.3;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.diegominetti.ai-usage-menubar.widget.v2";
 				PRODUCT_NAME = AIUsageWidget;
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 6.0;

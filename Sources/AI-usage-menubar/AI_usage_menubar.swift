@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var claudeService:      ClaudeUsageService!
     private var claudeStatusService: ClaudeStatusService!
     private var codexService:       ChatGPTCodexUsageService!
+    private var minimaxService:     MiniMaxUsageService!
     private let updateService = AppUpdateService()
 
     private var loginWindow: GitHubLoginWindow?
@@ -20,11 +21,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var hostingView: NSHostingView<MenuContentView>!
     private var desktopWidgetWindow: NSPanel?
     private var desktopWidgetMenuItem: NSMenuItem!
+    private var mainWindow: NSWindow?
+    private var mainWindowHostingView: NSHostingView<MainWindowView>?
 
     // MARK: - App lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleGetURLEvent(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL)
+        )
         buildStatusItem()
         startServices()
     }
@@ -48,6 +57,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hostingMenuItem = NSMenuItem()
         hostingMenuItem.view = hostingView
         menu.addItem(hostingMenuItem)
+
+        menu.addItem(.separator())
+
+        let openDashboard = NSMenuItem(title: "Open AI Usage", action: #selector(openMainWindow), keyEquivalent: "")
+        openDashboard.target = self
+        menu.addItem(openDashboard)
+
+        let openSettings = NSMenuItem(title: "Settings", action: #selector(openSettingsWindow), keyEquivalent: ",")
+        openSettings.target = self
+        menu.addItem(openSettings)
 
         menu.addItem(.separator())
 
@@ -149,12 +168,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         codexService.start()
 
+        // ── MiniMax Token Plan usage ──────────────────────────────
+        minimaxService = MiniMaxUsageService()
+        vm.minimaxUsage = minimaxService.cachedUsage
+        minimaxService.onUpdate = { [weak self] usage in
+            self?.vm.minimaxUsage = usage
+            self?.vm.isMiniMaxConfigured = MiniMaxUsageService.hasAPIKey
+            self?.updateStatusBar()
+            self?.saveSnapshot()
+        }
+        minimaxService.start()
+
         // Manual refresh from UI
         vm.onRefresh = { [weak self] in
             guard let self = self else { return }
             self.copilotService.refresh()
             self.claudeService.refresh()
             self.codexService.refresh()
+            self.minimaxService.refresh()
             // trigger a quick status check for Claude CLI
             self.claudeStatusService.start()
             self.updateStatusBar()
@@ -167,6 +198,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.saveSnapshot()
             self.updateService.startIfEnabled(self.vm.settings.autoUpdateFromMain)
         }
+        vm.onOpenMainWindow = { [weak self] in
+            self?.showMainWindow(tab: .dashboard)
+        }
+        vm.onOpenSettingsWindow = { [weak self] in
+            self?.showMainWindow(tab: .settings)
+        }
+        vm.onOpenChartSettingsWindow = { [weak self] in
+            self?.showMainWindow(tab: .chartSettings)
+        }
 
         updateService.startIfEnabled(vm.settings.autoUpdateFromMain)
         saveSnapshot()
@@ -176,7 +216,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func updateStatusBar() {
         guard let btn = statusItem.button else { return }
-        let providers = UsageProviderID.allCases.filter { vm.settings.showsProviderInMenuBar($0) }
+        let providers = vm.settings.orderedMenuBarProviders
         btn.image = nil
         btn.title = ""
 
@@ -189,20 +229,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let parts = providers.map { provider -> String in
             switch provider {
             case .claude:
-                return "Cl \(String(format: "%.0f%%", min(vm.claudeUsage.sessionPercentage, 100.0)))"
+                return "Cl \(vm.displayCompactLabel(for: .claude))"
             case .copilot:
-                return "Co \(vm.copilotUsage.map { String(format: "%.0f%%", $0.percentage) } ?? "-")"
+                return "Co \(vm.displayCompactLabel(for: .copilot))"
             case .codex:
-                if let fiveHour = vm.codexUsage.fiveHourWindow {
-                    return "Cx \(String(format: "%.0f%%", fiveHour.remainingPercent))"
-                }
-                if let weekly = vm.codexUsage.weeklyWindow {
-                    return "Cx \(String(format: "%.0f%%", weekly.remainingPercent))"
-                }
-                if let monthly = vm.codexUsage.monthlyLimit {
-                    return "Cx \(String(format: "%.0f%%", monthly.remainingPercent))"
-                }
-                return "Cx \(formatCount(vm.codexUsage.weeklyTokens))"
+                return "Cx \(vm.displayCompactLabel(for: .codex))"
+            case .minimax:
+                return "Mx \(vm.displayCompactLabel(for: .minimax))"
             }
         }
 
@@ -215,15 +248,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let claudeSummary = vm.summary(for: .claude)
         let copilotSummary = vm.summary(for: .copilot)
         let codexSummary = vm.summary(for: .codex)
+        let minimaxSummary = vm.summary(for: .minimax)
 
-        UsageSnapshotStore.save(UsageSnapshot(
-            generatedAt: Date(),
-            services: [
+        let services = [
                 UsageSnapshot.Service(
                     id: "claude",
                     name: "Claude Code",
                     detail: "\(formatCount(vm.claudeUsage.weeklyTokens)) last 7d",
-                    usedLabel: "\(formatCount(vm.claudeUsage.sessionTokens)) session",
+                    usedLabel: vm.displayCompactLabel(for: .claude),
                     percentage: min(max(vm.claudeUsage.sessionPercentage, 0), 100),
                     status: vm.claudeStatus.rawValue,
                     tintHex: "#DA7756",
@@ -236,13 +268,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     periodStart: claudeSummary.periodStart,
                     periodEnd: claudeSummary.periodEnd,
                     resetAt: claudeSummary.resetDate,
-                    updatedAt: claudeSummary.updatedAt
+                    updatedAt: claudeSummary.updatedAt,
+                    chartPoints: vm.chartPoints(for: .claude)
                 ),
                 UsageSnapshot.Service(
                     id: "copilot",
                     name: "GitHub Copilot",
                     detail: vm.copilotUsage.map { "\(String(format: "%.1f", $0.remainingPercentage))% available" } ?? "Not connected",
-                    usedLabel: vm.copilotUsage.map { String(format: "%.1f%% used", $0.percentage) } ?? "No data",
+                    usedLabel: vm.displayCompactLabel(for: .copilot),
                     percentage: vm.copilotUsage?.percentage,
                     status: vm.isGitHubConnected ? "Connected" : "Not connected",
                     tintHex: "#8534F3",
@@ -255,13 +288,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     periodStart: copilotSummary.periodStart,
                     periodEnd: copilotSummary.periodEnd,
                     resetAt: copilotSummary.resetDate,
-                    updatedAt: copilotSummary.updatedAt
+                    updatedAt: copilotSummary.updatedAt,
+                    chartPoints: vm.chartPoints(for: .copilot)
                 ),
                 UsageSnapshot.Service(
                     id: "codex",
                     name: "ChatGPT / Codex",
                     detail: codexSnapshotDetail(vm.codexUsage),
-                    usedLabel: codexSnapshotUsedLabel(vm.codexUsage),
+                    usedLabel: vm.displayCompactLabel(for: .codex),
                     percentage: codexSnapshotPercentage(vm.codexUsage),
                     status: vm.codexUsage.hasQuotaData ? "Usage" : (vm.codexUsage.lastModel ?? "Local"),
                     tintHex: "#10A37F",
@@ -274,14 +308,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     periodStart: codexSummary.periodStart,
                     periodEnd: codexSummary.periodEnd,
                     resetAt: codexSummary.resetDate,
-                    updatedAt: codexSummary.updatedAt
+                    updatedAt: codexSummary.updatedAt,
+                    chartPoints: vm.chartPoints(for: .codex)
+                ),
+                UsageSnapshot.Service(
+                    id: "minimax",
+                    name: "MiniMax",
+                    detail: minimaxSnapshotDetail(vm.minimaxUsage),
+                    usedLabel: vm.displayCompactLabel(for: .minimax),
+                    percentage: vm.minimaxUsage.primaryWindow?.displayUsedPercent,
+                    status: vm.isMiniMaxConfigured ? vm.minimaxUsage.status : "Not configured",
+                    tintHex: "#2563EB",
+                    resetLabel: vm.minimaxUsage.primaryWindow?.resetAt.map { "Resets \(relativeTime(to: $0))" },
+                    usedValue: minimaxSummary.used,
+                    remainingValue: minimaxSummary.remaining,
+                    limitValue: minimaxSummary.limit,
+                    unit: minimaxSummary.unit.rawValue,
+                    periodLabel: minimaxSummary.periodLabel,
+                    periodStart: minimaxSummary.periodStart,
+                    periodEnd: minimaxSummary.periodEnd,
+                    resetAt: minimaxSummary.resetDate,
+                    updatedAt: minimaxSummary.updatedAt,
+                    chartPoints: vm.chartPoints(for: .minimax)
                 )
             ].filter { service in
                 guard let provider = UsageProviderID(rawValue: service.id) else { return true }
-                return vm.settings.showsProvider(provider)
+                return vm.settings.showsProviderInWidget(provider)
             }
+        let byID = Dictionary(uniqueKeysWithValues: services.map { ($0.id, $0) })
+        let orderedServices = vm.settings.orderedWidgetProviders.compactMap { byID[$0.rawValue] }
+
+        UsageSnapshotStore.save(UsageSnapshot(
+            generatedAt: Date(),
+            services: orderedServices
         ))
         WidgetCenter.shared.reloadTimelines(ofKind: "AIUsageWidget")
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     // MARK: - Actions
@@ -303,6 +365,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         vm.isGitHubConnected   = false
         updateStatusBar()
         saveSnapshot()
+    }
+
+    @objc private func openMainWindow() {
+        showMainWindow(tab: .dashboard)
+    }
+
+    @objc private func openSettingsWindow() {
+        showMainWindow(tab: .settings)
+    }
+
+    @objc private func handleGetURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent replyEvent: NSAppleEventDescriptor) {
+        guard let rawURL = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
+              let url = URL(string: rawURL) else {
+            showMainWindow(tab: .dashboard)
+            return
+        }
+
+        switch url.host {
+        case "charts":
+            showMainWindow(tab: .chartSettings)
+        case "settings":
+            showMainWindow(tab: .settings)
+        default:
+            showMainWindow(tab: .dashboard)
+        }
+    }
+
+    private func showMainWindow(tab: MainWindowTab) {
+        if mainWindow == nil {
+            let content = MainWindowView(vm: vm, selectedTab: tab)
+            let hosting = NSHostingView(rootView: content)
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 940, height: 640),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "AI Usage"
+            window.center()
+            window.contentView = hosting
+            window.isReleasedWhenClosed = false
+            mainWindow = window
+            mainWindowHostingView = hosting
+        } else {
+            mainWindowHostingView?.rootView = MainWindowView(vm: vm, selectedTab: tab)
+        }
+
+        NSApp.setActivationPolicy(.regular)
+        mainWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc private func toggleDesktopWidget() {
@@ -379,19 +491,6 @@ private func relativeTime(to date: Date) -> String {
     return delta >= 0 ? "\(suffix) \(value)" : "\(value) \(suffix)"
 }
 
-private func codexSnapshotUsedLabel(_ usage: ChatGPTCodexUsage) -> String {
-    if let fiveHour = usage.fiveHourWindow {
-        return String(format: "%.0f%% 5h left", fiveHour.remainingPercent)
-    }
-    if let weekly = usage.weeklyWindow {
-        return String(format: "%.0f%% weekly left", weekly.remainingPercent)
-    }
-    if let monthly = usage.monthlyLimit {
-        return String(format: "%.0f%% monthly left", monthly.remainingPercent)
-    }
-    return "\(formatCount(usage.weeklyTokens)) last 7d"
-}
-
 private func codexSnapshotDetail(_ usage: ChatGPTCodexUsage) -> String {
     if let fiveHour = usage.fiveHourWindow, let weekly = usage.weeklyWindow {
         return String(format: "5h %.0f%% · Weekly %.0f%%", fiveHour.remainingPercent, weekly.remainingPercent)
@@ -420,6 +519,23 @@ private func codexSnapshotResetLabel(_ usage: ChatGPTCodexUsage) -> String? {
         return "Monthly resets \(relativeTime(to: reset))"
     }
     return usage.lastUpdated.map { "Updated \(relativeTime(to: $0))" }
+}
+
+private func minimaxSnapshotDetail(_ usage: MiniMaxUsage) -> String {
+    guard usage.hasUsageData else {
+        return usage.errorMessage ?? usage.status
+    }
+
+    let parts = usage.windows.prefix(3).map { window -> String in
+        if let remainingPercent = window.displayRemainingPercent {
+            return "\(window.periodLabel) \(String(format: "%.0f%%", remainingPercent))"
+        }
+        if let remaining = window.remaining {
+            return "\(window.periodLabel) \(formatCount(Int(remaining))) left"
+        }
+        return window.periodLabel
+    }
+    return parts.joined(separator: " · ")
 }
 
 // MARK: - App entry point

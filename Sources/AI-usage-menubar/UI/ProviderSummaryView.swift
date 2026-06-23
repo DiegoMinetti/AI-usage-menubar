@@ -4,6 +4,7 @@ struct ProviderSummaryView: View {
     let summary: ProviderUsageSummary
     let tint: Color
     let now: Date
+    var percentageMode: PercentageDisplayMode = .used
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -11,10 +12,10 @@ struct ProviderSummaryView: View {
                 Text(summary.periodLabel)
                     .font(.system(size: 11, weight: .medium))
                 Spacer()
-                if let pct = summary.percentageUsed {
-                    Text(String(format: "%.0f%% used", pct))
+                if let pct = displayPercentage {
+                    Text(String(format: "%.0f%% %@", pct, percentageMode.displayName.lowercased()))
                         .font(.system(size: 11, weight: .semibold).monospacedDigit())
-                        .foregroundColor(percentColor(pct))
+                        .foregroundColor(percentColor(displayUsedPercentage ?? pct))
                 } else {
                     Text(summary.status)
                         .font(.system(size: 10))
@@ -22,7 +23,7 @@ struct ProviderSummaryView: View {
                 }
             }
 
-            if let pct = summary.percentageUsed {
+            if let pct = displayUsedPercentage {
                 UsageBar(value: min(max(pct / 100, 0), 1), color: percentColor(pct))
             }
 
@@ -39,6 +40,29 @@ struct ProviderSummaryView: View {
                 }
             }
         }
+    }
+
+    private var displayPercentage: Double? {
+        switch percentageMode {
+        case .used:
+            return summary.percentageUsed
+        case .remaining:
+            if let remaining = summary.remaining, let limit = summary.limit, limit > 0 {
+                return min(max((remaining / limit) * 100, 0), 100)
+            }
+            if let used = summary.percentageUsed {
+                return min(max(100 - used, 0), 100)
+            }
+            return nil
+        }
+    }
+
+    private var displayUsedPercentage: Double? {
+        if let used = summary.percentageUsed { return used }
+        if let remaining = displayPercentage, percentageMode == .remaining {
+            return min(max(100 - remaining, 0), 100)
+        }
+        return nil
     }
 
     private func metric(_ label: String, value: String) -> some View {

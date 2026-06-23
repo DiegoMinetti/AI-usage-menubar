@@ -9,6 +9,8 @@ private let claudeColor  = Color(red: 0xDA/255, green: 0x77/255, blue: 0x56/255)
 private let copilotColor = Color(red: 0x85/255, green: 0x34/255, blue: 0xF3/255)
 /// OpenAI green #10A37F
 private let codexColor = Color(red: 0x10/255, green: 0xA3/255, blue: 0x7F/255)
+/// MiniMax blue
+private let minimaxColor = Color(red: 0x25/255, green: 0x63/255, blue: 0xEB/255)
 
 // MARK: - Root view
 
@@ -18,21 +20,20 @@ struct MenuContentView: View {
     private let tick = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
     @State private var now = Date()
     @State private var isRefreshing = false
-    @State private var showSettings = false
 
     var body: some View {
         VStack(spacing: 0) {
             // Top-right refresh button
             HStack {
-                Button(action: { showSettings.toggle() }) {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 13, weight: .regular))
+                Button(action: { vm.onOpenMainWindow?() }) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "chart.xyaxis.line")
+                        Text("Open")
+                    }
+                    .font(.system(size: 11, weight: .medium))
                 }
                 .buttonStyle(BorderlessButtonStyle())
-                .help("Settings")
-                .popover(isPresented: $showSettings, arrowEdge: .top) {
-                    SettingsPanelView(vm: vm)
-                }
+                .help("Open dashboard and settings")
 
                 Spacer()
                 Button(action: {
@@ -54,7 +55,7 @@ struct MenuContentView: View {
             .padding(.horizontal, 12)
             .padding(.top, 6)
 
-            let visible = UsageProviderID.allCases.filter { vm.settings.showsProvider($0) }
+            let visible = vm.settings.orderedVisibleProviders
             if visible.isEmpty {
                 EmptyProvidersView()
             } else {
@@ -67,6 +68,8 @@ struct MenuContentView: View {
                         CopilotSectionView(vm: vm, now: now)
                     case .codex:
                         CodexSectionView(vm: vm, now: now)
+                    case .minimax:
+                        MiniMaxSectionView(vm: vm, now: now)
                     }
                 }
             }
@@ -74,6 +77,90 @@ struct MenuContentView: View {
         .frame(width: 290)
         .background(Color.clear)
         .onReceive(tick) { self.now = $0 }
+    }
+}
+
+// MARK: - MiniMax section
+
+private struct MiniMaxSectionView: View {
+    @ObservedObject var vm: MenuViewModel
+    let now: Date
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            SectionHeader(
+                title: "MINIMAX",
+                dotColor: vm.isMiniMaxConfigured ? (vm.minimaxUsage.hasUsageData ? .green : .orange) : Color(NSColor.tertiaryLabelColor),
+                statusLabel: vm.isMiniMaxConfigured ? vm.minimaxUsage.status : "Not configured"
+            )
+
+            if !vm.isMiniMaxConfigured {
+                Text("Add a MiniMax Token Plan API key in Settings to track quota.")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if vm.minimaxUsage.hasUsageData {
+                ProviderSummaryView(summary: vm.summary(for: .minimax, now: now), tint: minimaxColor, now: now, percentageMode: vm.settings.percentageDisplayMode)
+                Divider().opacity(0.2)
+                ForEach(vm.minimaxUsage.windows) { window in
+                    MiniMaxWindowRow(window: window, now: now)
+                }
+            } else {
+                Text(vm.minimaxUsage.errorMessage ?? "Fetching MiniMax usage…")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+    }
+}
+
+private struct MiniMaxWindowRow: View {
+    let window: MiniMaxLimitWindow
+    let now: Date
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("\(window.modelName) \(window.periodLabel)")
+                    .font(.system(size: 11, weight: .medium))
+                Spacer()
+                if let remaining = window.displayRemainingPercent {
+                    Text(String(format: "%.0f%% left", remaining))
+                        .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                        .foregroundColor(minimaxRemainingColor(remaining))
+                }
+                if let reset = window.resetAt {
+                    Text(minimaxResetLabel(reset))
+                        .font(.system(size: 10).monospacedDigit())
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            UsageBar(value: min(max((window.displayUsedPercent ?? 0) / 100, 0), 1), color: minimaxLimitColor(window.displayUsedPercent ?? 0))
+
+            if let remaining = window.remaining, let limit = window.limit {
+                HStack {
+                    Text("\(formatTokens(Int(remaining))) remaining")
+                    Spacer()
+                    Text("Limit \(formatTokens(Int(limit)))")
+                }
+                .font(.system(size: 10).monospacedDigit())
+                .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    private func minimaxResetLabel(_ date: Date) -> String {
+        if date.timeIntervalSince(now) < 86_400 {
+            return formatTime(date)
+        }
+        let df = DateFormatter()
+        df.locale = Locale.current
+        df.dateFormat = "MMM d"
+        return df.string(from: date)
     }
 }
 
@@ -123,7 +210,7 @@ private struct ClaudeSectionView: View {
                     .fixedSize(horizontal: false, vertical: true)
 
             case .connected:
-                ProviderSummaryView(summary: vm.summary(for: .claude, now: now), tint: claudeColor, now: now)
+                ProviderSummaryView(summary: vm.summary(for: .claude, now: now), tint: claudeColor, now: now, percentageMode: vm.settings.percentageDisplayMode)
                 Divider().opacity(0.2)
                 SessionRowView(usage: vm.claudeUsage, now: now)
                 Divider().opacity(0.2)
@@ -380,7 +467,7 @@ private struct CodexSectionView: View {
             )
 
             if usage.hasUsageData {
-                ProviderSummaryView(summary: vm.summary(for: .codex, now: now), tint: codexColor, now: now)
+                ProviderSummaryView(summary: vm.summary(for: .codex, now: now), tint: codexColor, now: now, percentageMode: vm.settings.percentageDisplayMode)
                 Divider().opacity(0.2)
 
                 if usage.hasQuotaData {
@@ -587,7 +674,7 @@ private struct CopilotSectionView: View {
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else if let usage = vm.copilotUsage {
-                ProviderSummaryView(summary: vm.summary(for: .copilot, now: now), tint: copilotColor, now: now)
+                ProviderSummaryView(summary: vm.summary(for: .copilot, now: now), tint: copilotColor, now: now, percentageMode: vm.settings.percentageDisplayMode)
                 Divider().opacity(0.2)
                 CopilotUsageRowView(usage: usage, now: now)
             } else {
@@ -965,6 +1052,22 @@ private func codexRemainingColor(_ remainingPercent: Double) -> Color {
     case ..<10: return .red
     case ..<30: return .orange
     default:    return codexColor
+    }
+}
+
+private func minimaxLimitColor(_ usedPercent: Double) -> Color {
+    switch usedPercent {
+    case ..<70: return minimaxColor
+    case ..<90: return .orange
+    default:    return .red
+    }
+}
+
+private func minimaxRemainingColor(_ remainingPercent: Double) -> Color {
+    switch remainingPercent {
+    case ..<10: return .red
+    case ..<30: return .orange
+    default:    return minimaxColor
     }
 }
 

@@ -27,7 +27,9 @@ enum AppSettingsStore {
         }
 
         do {
-            return try JSONDecoder().decode(AppSettings.self, from: data)
+            let settings = try JSONDecoder().decode(AppSettings.self, from: data)
+            save(settings)
+            return settings
         } catch {
             settingsLogger.error("Failed to load settings: \(error.localizedDescription, privacy: .public)")
             let defaults = AppSettings.default

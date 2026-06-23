@@ -3,6 +3,7 @@ import SwiftUI
 private let widgetClaudeColor = Color(red: 0xDA/255, green: 0x77/255, blue: 0x56/255)
 private let widgetCopilotColor = Color(red: 0x85/255, green: 0x34/255, blue: 0xF3/255)
 private let widgetCodexColor = Color(red: 0x10/255, green: 0xA3/255, blue: 0x7F/255)
+private let widgetMiniMaxColor = Color(red: 0x25/255, green: 0x63/255, blue: 0xEB/255)
 
 struct DesktopWidgetView: View {
     @ObservedObject var vm: MenuViewModel
@@ -10,7 +11,7 @@ struct DesktopWidgetView: View {
     @State private var now = Date()
 
     var body: some View {
-        let visible = UsageProviderID.allCases.filter { vm.settings.showsProvider($0) }
+        let visible = vm.settings.orderedWidgetProviders
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 1) {
@@ -40,26 +41,38 @@ struct DesktopWidgetView: View {
                     case .claude:
                         WidgetServiceRow(
                             name: "Claude",
-                            value: String(format: "%.0f%%", min(max(vm.claudeUsage.sessionPercentage, 0), 100)),
+                            value: vm.displayCompactLabel(for: .claude),
                             detail: vm.claudeUsage.sessionWindowEnd.map { "Session resets \(countdown(to: $0, now: now))" } ?? "No active session",
                             color: widgetClaudeColor,
-                            progress: min(max(vm.claudeUsage.sessionPercentage / 100, 0), 1)
+                            progress: min(max(vm.claudeUsage.sessionPercentage / 100, 0), 1),
+                            chartPoints: vm.chartPoints(for: .claude)
                         )
                     case .copilot:
                         WidgetServiceRow(
                             name: "Copilot",
-                            value: vm.copilotUsage.map { String(format: "%.0f%%", $0.percentage) } ?? "-",
+                            value: vm.displayCompactLabel(for: .copilot),
                             detail: vm.copilotUsage.map { "Resets \(countdown(to: $0.resetDate, now: now))" } ?? "Not connected",
                             color: widgetCopilotColor,
-                            progress: min(max((vm.copilotUsage?.percentage ?? 0) / 100, 0), 1)
+                            progress: min(max((vm.copilotUsage?.percentage ?? 0) / 100, 0), 1),
+                            chartPoints: vm.chartPoints(for: .copilot)
                         )
                     case .codex:
                         WidgetServiceRow(
                             name: "Codex",
-                            value: codexValue(vm.codexUsage),
+                            value: vm.displayCompactLabel(for: .codex),
                             detail: codexDetail(vm.codexUsage, now: now),
                             color: widgetCodexColor,
-                            progress: codexProgress(vm.codexUsage)
+                            progress: codexProgress(vm.codexUsage),
+                            chartPoints: vm.chartPoints(for: .codex)
+                        )
+                    case .minimax:
+                        WidgetServiceRow(
+                            name: "MiniMax",
+                            value: vm.displayCompactLabel(for: .minimax),
+                            detail: minimaxDetail(vm.minimaxUsage, configured: vm.isMiniMaxConfigured, now: now),
+                            color: widgetMiniMaxColor,
+                            progress: min(max((vm.minimaxUsage.primaryWindow?.displayUsedPercent ?? 0) / 100, 0), 1),
+                            chartPoints: vm.chartPoints(for: .minimax)
                         )
                     }
                 }
@@ -72,6 +85,10 @@ struct DesktopWidgetView: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 1)
         )
+        .contentShape(RoundedRectangle(cornerRadius: 12))
+        .onTapGesture {
+            vm.onOpenChartSettingsWindow?()
+        }
         .onReceive(tick) { now = $0 }
     }
 
@@ -87,19 +104,6 @@ struct DesktopWidgetView: View {
         }
         let maxDay = max(usage.dailyHistory.map(\.tokens).max() ?? 0, 1)
         return min(Double(usage.todayTokens) / Double(maxDay), 1)
-    }
-
-    private func codexValue(_ usage: ChatGPTCodexUsage) -> String {
-        if let fiveHour = usage.fiveHourWindow {
-            return String(format: "%.0f%%", fiveHour.remainingPercent)
-        }
-        if let weekly = usage.weeklyWindow {
-            return String(format: "%.0f%%", weekly.remainingPercent)
-        }
-        if let monthly = usage.monthlyLimit {
-            return String(format: "%.0f%%", monthly.remainingPercent)
-        }
-        return compactCount(usage.weeklyTokens)
     }
 
     private func codexDetail(_ usage: ChatGPTCodexUsage, now: Date) -> String {
@@ -121,6 +125,16 @@ struct DesktopWidgetView: View {
         }
         return parts.joined(separator: " · ")
     }
+
+    private func minimaxDetail(_ usage: MiniMaxUsage, configured: Bool, now: Date) -> String {
+        guard configured else { return "Not configured" }
+        guard let window = usage.primaryWindow else { return usage.errorMessage ?? usage.status }
+        var parts = ["\(window.periodLabel) remaining"]
+        if let reset = window.resetAt {
+            parts.append("resets \(countdown(to: reset, now: now))")
+        }
+        return parts.joined(separator: " · ")
+    }
 }
 
 private struct WidgetServiceRow: View {
@@ -129,6 +143,7 @@ private struct WidgetServiceRow: View {
     let detail: String
     let color: Color
     let progress: Double
+    let chartPoints: [UsageSnapshot.ChartPoint]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -141,21 +156,47 @@ private struct WidgetServiceRow: View {
                     .foregroundColor(color)
             }
 
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.secondary.opacity(0.14))
-                    Capsule()
-                        .fill(color.gradient)
-                        .frame(width: max(geo.size.width * progress, progress > 0 ? 4 : 0))
-                }
-            }
-            .frame(height: 6)
+            WidgetMiniChart(points: chartPoints, color: color, fallbackProgress: progress)
+                .frame(height: 24)
 
             Text(detail)
                 .font(.system(size: 10))
                 .foregroundColor(.secondary)
                 .lineLimit(1)
         }
+    }
+}
+
+private struct WidgetMiniChart: View {
+    let points: [UsageSnapshot.ChartPoint]
+    let color: Color
+    let fallbackProgress: Double
+
+    var body: some View {
+        let values = points.map(\.value)
+        let maxValue = max(values.max() ?? 0, 1)
+
+        HStack(alignment: .bottom, spacing: 2) {
+            if points.isEmpty {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(color.opacity(0.85))
+                    .frame(width: nil, height: max(CGFloat(fallbackProgress) * 22, fallbackProgress > 0 ? 3 : 2))
+                    .frame(maxWidth: .infinity)
+            } else {
+                ForEach(points.suffix(28)) { point in
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(point.projected ? color.opacity(0.28) : color.opacity(point.value > 0 ? 0.85 : 0.16))
+                        .frame(height: max(CGFloat(point.value / maxValue) * 22, point.value > 0 ? 3 : 2))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 2)
+        .padding(.horizontal, 3)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color.secondary.opacity(0.08))
+        )
     }
 }
 

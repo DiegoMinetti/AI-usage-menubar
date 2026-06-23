@@ -8,7 +8,7 @@ set -euo pipefail
 # Configuration
 ###############################################################################
 APP_NAME="AI Usage"
-VERSION="${VERSION:-1.0.0}"
+VERSION="${VERSION:-1.0.3}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_PATH="$REPO_ROOT/build/${APP_NAME}.app"
 DMG_DIR="$REPO_ROOT/build"
@@ -21,7 +21,13 @@ VOLUME_NAME="${APP_NAME} ${VERSION}"
 ###############################################################################
 if [[ ! -d "$APP_PATH" ]]; then
     echo "❌ App bundle not found at: $APP_PATH"
-    echo "   Run ./scripts/build.sh first."
+    echo "   Run ./scripts/build_xcode.sh first so the app includes AIUsageWidget.appex."
+    exit 1
+fi
+
+if [[ ! -d "$APP_PATH/Contents/PlugIns/AIUsageWidget.appex" ]]; then
+    echo "❌ Widget extension not found in: $APP_PATH"
+    echo "   Run ./scripts/build_xcode.sh first. The SwiftPM build cannot package the native widget."
     exit 1
 fi
 

@@ -6,38 +6,37 @@ private let snapshotLogger = Logger(subsystem: "com.diegominetti.ai-usage-menuba
 
 enum UsageSnapshotStore {
     static let appGroupIdentifier = "group.com.diegominetti.ai-usage-menubar"
-    private static let widgetBundleIdentifier = "com.diegominetti.ai-usage-menubar.widget"
-    private static let snapshotRelativePath = "AI Usage/usage_snapshot.json"
+    private static let widgetBundleIdentifier = "com.diegominetti.ai-usage-menubar.widget.v2"
+    private static let snapshotFileName = "usage_snapshot_v2.json"
+    private static let legacySnapshotFileName = "usage_snapshot.json"
+    private static let snapshotRelativePath = "AI Usage/\(snapshotFileName)"
+    private static let legacySnapshotRelativePath = "AI Usage/\(legacySnapshotFileName)"
 
     static var snapshotURL: URL {
-        if let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier) {
-            return container
-                .appendingPathComponent("Library/Application Support/AI Usage", isDirectory: true)
-                .appendingPathComponent("usage_snapshot.json")
-        }
-
         let fm = FileManager.default
         do {
             let support = try fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-            let dir = support.appendingPathComponent("ai-usage-tracker", isDirectory: true)
+            let dir = support.appendingPathComponent("AI Usage", isDirectory: true)
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
-            return dir.appendingPathComponent("usage_snapshot.json")
+            return dir.appendingPathComponent(snapshotFileName)
         } catch {
-            return URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("usage_snapshot.json")
+            return URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(snapshotFileName)
         }
     }
 
     static func load() -> UsageSnapshot? {
-        let url = readableSnapshotURL()
-        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-        do {
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            return try decoder.decode(UsageSnapshot.self, from: Data(contentsOf: url))
-        } catch {
-            snapshotLogger.error("Failed to load snapshot at \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            return nil
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        for url in readableSnapshotURLs() where FileManager.default.fileExists(atPath: url.path) {
+            do {
+                return try decoder.decode(UsageSnapshot.self, from: Data(contentsOf: url))
+            } catch {
+                snapshotLogger.error("Failed to load snapshot at \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
         }
+
+        return nil
     }
 
     static func save(_ snapshot: UsageSnapshot) {
@@ -78,24 +77,26 @@ enum UsageSnapshotStore {
         }
     }
 
-    private static func readableSnapshotURL() -> URL {
-        if let local = localApplicationSupportSnapshotURL(),
-           FileManager.default.fileExists(atPath: local.path) {
-            return local
+    private static func readableSnapshotURLs() -> [URL] {
+        var urls: [URL] = []
+        if let widgetURL = widgetContainerSnapshotURL() {
+            urls.append(widgetURL)
         }
-
-        if FileManager.default.fileExists(atPath: snapshotURL.path) {
-            return snapshotURL
+        urls.append(snapshotURL)
+        if let local = localApplicationSupportSnapshotURL() {
+            urls.append(local)
         }
+        urls.append(contentsOf: additionalSnapshotURLs())
+        urls.append(contentsOf: legacySnapshotURLs())
+        return uniqueURLs(urls)
+    }
 
-        if let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier) {
-            let legacy = container.appendingPathComponent("usage_snapshot.json")
-            if FileManager.default.fileExists(atPath: legacy.path) {
-                return legacy
-            }
+    private static func uniqueURLs(_ urls: [URL]) -> [URL] {
+        var seen = Set<String>()
+        return urls.filter { url in
+            let path = url.standardizedFileURL.path
+            return seen.insert(path).inserted
         }
-
-        return snapshotURL
     }
 
     private static func localApplicationSupportSnapshotURL() -> URL? {
@@ -111,7 +112,18 @@ enum UsageSnapshotStore {
         }
         return [
             support.appendingPathComponent(snapshotRelativePath),
-            support.appendingPathComponent("ai-usage-tracker/usage_snapshot.json")
+            support.appendingPathComponent("ai-usage-tracker/\(snapshotFileName)")
+        ]
+    }
+
+    private static func legacySnapshotURLs() -> [URL] {
+        guard let support = try? FileManager.default
+            .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false) else {
+            return []
+        }
+        return [
+            support.appendingPathComponent(legacySnapshotRelativePath),
+            support.appendingPathComponent("ai-usage-tracker/\(legacySnapshotFileName)")
         ]
     }
 
@@ -124,27 +136,8 @@ enum UsageSnapshotStore {
     }
 
     private static func writeSharedSnapshotData(_ data: Data, to url: URL) throws {
-        try data.withUnsafeBytes { buffer in
-            guard let baseAddress = buffer.baseAddress else { return }
-            let fd = open(url.path, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
-            guard fd >= 0 else {
-                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-            }
-            defer { close(fd) }
-
-            var remaining = data.count
-            var pointer = baseAddress
-            while remaining > 0 {
-                let written = write(fd, pointer, remaining)
-                if written < 0 {
-                    throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-                }
-                remaining -= written
-                pointer = pointer.advanced(by: written)
-            }
-
-            fchmod(fd, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
-        }
+        try data.write(to: url, options: [.atomic])
+        try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
     }
 
     private static func removeQuarantineMetadata(from url: URL) {

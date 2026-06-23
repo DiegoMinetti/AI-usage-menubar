@@ -9,8 +9,8 @@ set -euo pipefail
 BUNDLE_ID="com.diegominetti.ai-usage-menubar"
 APP_NAME="AI Usage"
 EXECUTABLE_NAME="AI-usage-menubar"
-VERSION="1.0.0"
-BUILD_NUMBER="1"
+VERSION="1.0.3"
+BUILD_NUMBER="9"
 MAIN_COMMIT="${MAIN_COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo local)}"
 ENTITLEMENTS="$(pwd)/AI-usage-menubar.entitlements"
 SIGN_IDENTITY=""
@@ -70,6 +70,17 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <string>APPL</string>
     <key>CFBundleExecutable</key>
     <string>${EXECUTABLE_NAME}</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>${BUNDLE_ID}</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>ai-usage</string>
+            </array>
+        </dict>
+    </array>
     <key>LSUIElement</key>
     <true/>
     <key>LSMinimumSystemVersion</key>
